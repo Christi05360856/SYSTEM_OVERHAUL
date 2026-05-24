@@ -1246,17 +1246,11 @@ async function loadWinners() {
   
   try {
     const weekId = getCurrentWeekId();
-    log(`Loading winners for ${weekId}…`);
-    
-    // Read from subcollection (matches firebase.js structure)
     const snap = await db.collection('leaderboard').doc(weekId).collection('entries')
-      .orderBy('points', 'desc')
-      .limit(3)
-      .get();
+      .orderBy('points', 'desc').limit(3).get();
     
     const entries = snap.docs.map(d => ({ userId: d.id, ...d.data() }));
-    log(`Leaderboard entries this week: ${entries.length}`, 'ok');
-
+    
     if (entries.length === 0) {
       grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-crown"></i><p>No entries yet this week</p></div>';
       return;
@@ -1270,14 +1264,10 @@ async function loadWinners() {
     for (let i = 0; i < 3; i++) {
       const entry = entries[i];
       if (!entry) {
-        html += `<div class="winner-card ${classes[i]}">
-          <div class="winner-rank">${medals[i]}</div>
-          <div class="winner-name" style="color:var(--text-muted)">No Entry</div>
-          <div class="winner-reward ${classes[i]}">${rewards[i]}</div>
-        </div>`;
+        html += `<div class="winner-card ${classes[i]}"><div class="winner-rank">${medals[i]}</div><div class="winner-name" style="color:var(--text-muted)">No Entry</div><div class="winner-reward ${classes[i]}">${rewards[i]}</div></div>`;
         continue;
       }
-      const ud  = userCache[entry.userId] || {};
+      const ud = userCache[entry.userId] || {};
       html += `<div class="winner-card ${classes[i]}">
         <div class="winner-rank">${medals[i]}</div>
         <div class="winner-name">${entry.name || 'Unknown'}</div>
@@ -1292,7 +1282,6 @@ async function loadWinners() {
     }
     grid.innerHTML = html;
   } catch(err) {
-    log(`Winners error: ${err.message}`, 'err');
     grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><i class="fas fa-exclamation-circle"></i><p>Error loading winners</p></div>';
   }
 }
@@ -1307,11 +1296,9 @@ async function loadLeaderboard() {
   try {
     const weekId = getCurrentWeekId();
     const snap = await db.collection('leaderboard').doc(weekId).collection('entries')
-      .orderBy('points', 'desc')
-      .get();
+      .orderBy('points', 'desc').get();
     
     const entries = snap.docs.map(d => ({ userId: d.id, ...d.data() }));
-    log(`Leaderboard: ${entries.length} entries for ${weekId}`, 'ok');
 
     if (entries.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fas fa-trophy"></i><p>No entries this week yet</p></div></td></tr>';
@@ -1320,36 +1307,25 @@ async function loadLeaderboard() {
 
     let html = '';
     entries.forEach((entry, i) => {
-      const rank   = i + 1;
-      const medal  = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '#' + rank;
-      const ud     = userCache[entry.userId] || {};
-      const net    = (ud.networkProvider || '—').toLowerCase().replace('9mobile','ninemobile');
-      const level  = getLevelFromTotalXp(ud.totalXp || 0);
-      const status = rank <= 3
-        ? '<span class="badge weekly">🏆 Winner</span>'
-        : '<span style="font-size:11px;color:var(--text-muted)">Participant</span>';
-
+      const rank = i + 1;
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '#' + rank;
+      const ud = userCache[entry.userId] || {};
+      const net = (ud.networkProvider || '—').toLowerCase().replace('9mobile','ninemobile');
+      const level = getLevelFromTotalXp(ud.totalXp || 0);
+      
       html += `<tr>
         <td><span class="rank-medal">${medal}</span></td>
-        <td>
-          <div class="user-cell">
-            <div class="user-avatar">${(entry.name||'?').charAt(0).toUpperCase()}</div>
-            <div>
-              <div class="user-name">${entry.name || 'Unknown'}</div>
-            </div>
-          </div>
-        </td>
+        <td><div class="user-cell"><div class="user-avatar">${(entry.name||'?').charAt(0).toUpperCase()}</div><div><div class="user-name">${entry.name || 'Unknown'}</div></div></div></td>
         <td class="user-email">${ud.email || '—'}</td>
         <td>${ud.phoneNumber || '—'}</td>
         <td><span class="network-badge ${net}">${ud.networkProvider || '—'}</span></td>
         <td><span class="points-badge">${(entry.points || 0).toLocaleString()} XP</span></td>
         <td style="font-size:12px">Lv.${level} ${getLevelTitle(level)}</td>
-        <td>${status}</td>
+        <td>${rank <= 3 ? '<span class="badge weekly">🏆 Winner</span>' : '<span style="font-size:11px;color:var(--text-muted)">Participant</span>'}</td>
       </tr>`;
     });
     tbody.innerHTML = html;
   } catch(err) {
-    log(`Leaderboard error: ${err.message}`, 'err');
     tbody.innerHTML = '<tr><td colspan="8"><div class="empty-state"><i class="fas fa-exclamation-circle"></i><p>Error loading leaderboard</p></div></td></tr>';
   }
 }
