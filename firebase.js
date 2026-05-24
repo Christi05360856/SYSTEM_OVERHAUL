@@ -1985,4 +1985,17 @@ if (document.readyState === 'loading') {
   attachEventListeners();
 }
 
+// DEBUG: Test leaderboard write immediately
+setTimeout(async () => {
+  const user = auth.currentUser;
+  if (user) {
+    console.log('🔥 Testing leaderboard write...');
+    try {
+      await updateWeeklyLeaderboard(user.uid, user.displayName || 'Test', 100);
+      console.log('✅ Test write succeeded');
+    } catch (e) {
+      console.error('❌ Test write failed:', e);
+    }
+  }
+}, 3000);
 console.log('🕊️ ScriptureQuest firebase.js v4 loaded — XP • Levels • Quests • Badges • Achievements • Leagues');
