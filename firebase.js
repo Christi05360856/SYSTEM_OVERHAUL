@@ -852,22 +852,6 @@ async function updateUIForLoggedInUser(user) {
   }
 
   setTimeout(() => checkNotificationStatus(), 1000);
-    }
-
-
-    // Update league display
-    const entries = await fetchLeaderboard();
-    const rank    = entries.findIndex(e => e.userId === user.uid) + 1;
-    if (rank > 0) {
-      const league = getUserLeague(0, rank);
-      updateLeagueBadges(league);
-    }
-  } catch (err) {
-    console.error('updateUIForLoggedInUser error:', err);
-    showQuizAttemptsLeft(2);
-  }
-
-  setTimeout(() => checkNotificationStatus(), 1000);
 }
 
 function renderXpDisplay(totalXp) {
@@ -922,23 +906,10 @@ async function saveQuizResult(score, totalQuestions, timeLeft, pointsLegacy) {
   const user = auth.currentUser;
   if (!user) return { xpEarned: 0, leveledUp: false, newLevel: 1, questBonus: 0, completedQuests: [] };
 
-  // Inside saveQuizResult(), wrap the quizAttempts.add() in try-catch:
-try {
-  await db.collection('quizAttempts').add({
-    userId: user.uid,
-    userName: user.displayName || data.name || 'User',
-    score, totalQuestions, percentage: pct, timeLeft,
-    points: xpEarned, xpEarned,
-    timestamp: firebase.firestore.FieldValue.serverTimestamp()
-  });
-} catch (logErr) {
-  console.error('Quiz attempt log failed (non-fatal):', logErr);
-  // Keep going — don't let this kill the leaderboard
-}
-
-// Weekly leaderboard (moved outside the try-catch)
-await updateWeeklyLeaderboard(user.uid, user.displayName || data.name || 'User', xpEarned);
-
+  try {
+    const userRef  = db.collection('users').doc(user.uid);
+    const userDoc  = await userRef.get();
+    const data     = userDoc.data() || {};
 
     // ── Streak calc ──
     const now          = new Date();
@@ -1009,13 +980,17 @@ await updateWeeklyLeaderboard(user.uid, user.displayName || data.name || 'User',
     await userRef.set(updatePayload, { merge: true });
 
     // ── quizAttempts log ──
-    await db.collection('quizAttempts').add({
-      userId:         user.uid,
-      userName:       user.displayName || data.name || 'User',
-      score, totalQuestions, percentage: pct, timeLeft,
-      points:         xpEarned, xpEarned,
-      timestamp:      firebase.firestore.FieldValue.serverTimestamp()
-    });
+    try {
+      await db.collection('quizAttempts').add({
+        userId:         user.uid,
+        userName:       user.displayName || data.name || 'User',
+        score, totalQuestions, percentage: pct, timeLeft,
+        points:         xpEarned, xpEarned,
+        timestamp:      firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch (logErr) {
+      console.error('Quiz attempt log failed (non-fatal):', logErr);
+    }
 
     // ── Weekly leaderboard ──
     await updateWeeklyLeaderboard(user.uid, user.displayName || data.name || 'User', xpEarned);
@@ -1054,6 +1029,7 @@ await updateWeeklyLeaderboard(user.uid, user.displayName || data.name || 'User',
   }
 }
 window.saveQuizResult = saveQuizResult;
+
 
 // ============================================
 // QUIZ COMPLETE v2 — RESULT SCREEN RENDERER
