@@ -411,6 +411,15 @@ window.closeSubmitModal = closeSubmitModal;
 // ============================================
 // SUBMIT QUIZ
 // ============================================
+function calculateScore() {
+  let correct = 0;
+  for (let i = 0; i < selectedQuestions.length; i++) {
+    if (userAnswers[i] !== undefined &&
+        selectedQuestions[i] &&
+        selectedQuestions[i].answer === userAnswers[i]) correct++;
+  }
+  return correct;
+}
 
 async function submitQuiz() {
   if (quizSubmitted) return;
@@ -419,7 +428,18 @@ async function submitQuiz() {
   closeSubmitModal();
   clearQuizState();
 
-  const score = calculateScore();
+  // Safety check: ensure calculateScore exists
+  if (typeof calculateScore !== 'function') {
+    console.error('calculateScore is not defined!');
+    // Fallback calculation
+    let correct = 0;
+    for (let i = 0; i < selectedQuestions.length; i++) {
+      if (userAnswers[i] !== undefined && selectedQuestions[i] && selectedQuestions[i].answer === userAnswers[i]) correct++;
+    }
+    window._tempScore = correct;
+  }
+
+  const score = (typeof calculateScore === 'function') ? calculateScore() : window._tempScore;
 
   // Show loading state
   if (questionTextEl) questionTextEl.textContent = 'Calculating your results... 🕊️';
@@ -432,20 +452,19 @@ async function submitQuiz() {
   };
 
   // Calculate local XP as fallback
-  const localXp = score * 10 + 50 + Math.min(70, (resultData.streak || 0) * 10);
-  if (score / TOTAL_QUESTIONS >= 0.9) resultData.xpEarned += 90;
-  if (score / TOTAL_QUESTIONS >= 0.7) resultData.xpEarned += 40;
+  const pct = score / TOTAL_QUESTIONS;
+  let localXp = score * 10 + 50;
+  if (pct >= 0.9) localXp += 90;
+  if (pct >= 0.7) localXp += 40;
   resultData.xpEarned = localXp;
 
   // Try Firestore save
   if (typeof saveQuizResult === 'function' && firebase.auth().currentUser) {
     try {
       const firestoreResult = await saveQuizResult(score, TOTAL_QUESTIONS, timeLeft, 0);
-      // Merge Firestore result with local fallback (Firestore wins if it worked)
       resultData = { ...resultData, ...firestoreResult };
     } catch (err) {
       console.error('saveQuizResult failed, using local calculation:', err);
-      // Keep the locally calculated resultData
     }
   }
 
