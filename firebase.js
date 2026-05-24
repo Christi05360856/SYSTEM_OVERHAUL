@@ -901,133 +901,142 @@ function updateWeekBadges() {
 // ============================================
 // SAVE QUIZ RESULT (Full v4)
 // ============================================
-
 async function saveQuizResult(score, totalQuestions, timeLeft, pointsLegacy) {
   const user = auth.currentUser;
   if (!user) return { xpEarned: 0, leveledUp: false, newLevel: 1, questBonus: 0, completedQuests: [] };
 
+  // ── Calculate everything locally FIRST (so we have values even if Firestore fails) ──
+  const now          = new Date();
+  const pct          = Math.round((score / totalQuestions) * 100);
+  
+  // Get current user data for streak calc
+  let streak = 1, oldTotalXp = 0, oldLevel = 1, comebacks = 0;
+  let userData = {};
+  
   try {
-    const userRef  = db.collection('users').doc(user.uid);
-    const userDoc  = await userRef.get();
-    const data     = userDoc.data() || {};
-
-    // ── Streak calc ──
-    const now          = new Date();
-    const lastDate     = data.lastQuizDate ? data.lastQuizDate.toDate() : null;
-    let streak         = data.currentStreak || 0;
-    let comebacks      = data.comebacks || 0;
+    const userDoc = await db.collection('users').doc(user.uid).get();
+    userData = userDoc.data() || {};
+    const lastDate = userData.lastQuizDate ? userData.lastQuizDate.toDate() : null;
+    
     if (lastDate) {
       const diff = Math.floor((now - lastDate) / (1000 * 60 * 60 * 24));
-      if (diff === 1)      streak++;
-      else if (diff === 0) {}  // same day, no change
-      else                 { streak = 1; comebacks++; }
-    } else { streak = 1; }
-
-    // ── Quest check (before XP calc so we know bonus) ──
-    const pct         = Math.round((score / totalQuestions) * 100);
-    const answered    = score; // approximate
-    const preXp       = calculateXp(score, totalQuestions, timeLeft, streak, 0);
-
-    const questResult = await checkAndUpdateQuests(user.uid, {
-      score, total: totalQuestions, xpEarned: preXp, timeLeft, answered: totalQuestions
-    });
-
-    const questBonusXp = questResult.questBonusXp || 0;
-    const xpEarned     = preXp + questBonusXp;
-
-    // ── Level calc ──
-    const oldTotalXp   = data.totalXp || 0;
-    const newTotalXp   = oldTotalXp + xpEarned;
-    const oldLevel     = getLevelFromTotalXp(oldTotalXp);
-    const newLevel     = getLevelFromTotalXp(newTotalXp);
-    const leveledUp    = newLevel > oldLevel;
-
-    // ── Best score ──
-    const oldBest  = data.bestScore || 0;
-    const newBest  = Math.max(pct, oldBest);
-    const newTotal = (data.totalPoints || 0) + xpEarned;
-
-    // ── Stats for achievements ──
-    const isPerfect  = score === totalQuestions;
-    const isScholar  = pct >= 80;
-    const isSpeed    = timeLeft >= 180;  // 3+ min left
-    const hour       = now.getHours();
-    const earlyBird  = hour < 9  ? 1 : 0;
-    const nightOwl   = hour >= 21 ? 1 : 0;
-
-    // ── Firestore update ──
-    const updatePayload = {
-      name:               user.displayName || data.name || 'User',
-      email:              user.email,
-      totalPoints:        newTotal,
-      totalXp:            newTotalXp,
-      xp:                 getXpProgress(newTotalXp).current,
-      level:              newLevel,
-      quizzesTaken:       firebase.firestore.FieldValue.increment(1),
-      bestScore:          newBest,
-      bestScoreFormat:    'percentage',
-      currentStreak:      streak,
-      longestStreak:      Math.max(streak, data.longestStreak || 0),
-      lastQuizDate:       firebase.firestore.FieldValue.serverTimestamp(),
-      comebacks:          comebacks,
-      perfectScores:      firebase.firestore.FieldValue.increment(isPerfect ? 1 : 0),
-      scholarScores:      firebase.firestore.FieldValue.increment(isScholar ? 1 : 0),
-      speedRuns:          firebase.firestore.FieldValue.increment(isSpeed ? 1 : 0),
-      earlyBird:          firebase.firestore.FieldValue.increment(earlyBird),
-      nightOwl:           firebase.firestore.FieldValue.increment(nightOwl),
-    };
-
-    await userRef.set(updatePayload, { merge: true });
-
-    // ── quizAttempts log ──
-    try {
-      await db.collection('quizAttempts').add({
-        userId:         user.uid,
-        userName:       user.displayName || data.name || 'User',
-        score, totalQuestions, percentage: pct, timeLeft,
-        points:         xpEarned, xpEarned,
-        timestamp:      firebase.firestore.FieldValue.serverTimestamp()
-      });
-    } catch (logErr) {
-      console.error('Quiz attempt log failed (non-fatal):', logErr);
+      if (diff === 1) streak = (userData.currentStreak || 0) + 1;
+      else if (diff === 0) streak = userData.currentStreak || 1;
+      else { streak = 1; comebacks = (userData.comebacks || 0) + 1; }
     }
+    
+    oldTotalXp = userData.totalXp || 0;
+    oldLevel = userData.level || 1;
+  } catch (err) {
+    console.warn('Could not fetch user data for streak calc:', err);
+  }
 
-    // ── Weekly leaderboard ──
-    await updateWeeklyLeaderboard(user.uid, user.displayName || data.name || 'User', xpEarned);
+  // ── XP Calculation (local) ──
+  let xp = score * 10;
+  if (pct >= 90) xp += 90;
+  if (pct >= 70) xp += 40;
+  xp += 50; // completion bonus
+  xp += Math.min(70, streak * 10);
+  
+  // Try quests (best effort)
+  let questBonusXp = 0;
+  try {
+    const questResult = await checkAndUpdateQuests(user.uid, {
+      score, total: totalQuestions, xpEarned: xp, timeLeft, answered: totalQuestions
+    });
+    questBonusXp = questResult.questBonusXp || 0;
+  } catch (err) {
+    console.warn('Quest check failed:', err);
+  }
+  
+  const xpEarned = xp + questBonusXp;
+  const newTotalXp = oldTotalXp + xpEarned;
+  const newLevel = getLevelFromTotalXp(newTotalXp);
+  const leveledUp = newLevel > oldLevel;
 
-    // ── Badge check ──
-    const newBadge = await checkAndAwardBadges(user.uid);
+  // ── Build result object (return this even if Firestore fails) ──
+  const result = {
+    xpEarned, leveledUp, newLevel, oldLevel,
+    questBonusXp, completedQuests: [],
+    allQuestsCompleted: false,
+    newBadge: null, newAchievements: [],
+    score, pct, streak, newTotalXp
+  };
 
-    // ── Achievement check ──
-    const freshDoc   = await userRef.get();
-    const freshData  = freshDoc.data() || {};
-    const newAchs    = await updateAchievements(user.uid, {
-      perfectScores:    freshData.perfectScores || 0,
-      quizzesTaken:     freshData.quizzesTaken  || 0,
-      currentStreak:    streak,
-      totalXp:          newTotalXp,
-      speedRuns:        freshData.speedRuns     || 0,
-      scholarScores:    freshData.scholarScores || 0,
-      questsCompleted:  freshData.questsCompleted || 0,
-      level:            newLevel,
-      badgesEarned:     freshData.badgesEarned  || 0,
+  // ── Firestore writes (best effort — don't let failures break the quiz) ──
+  try {
+    const isPerfect = score === totalQuestions;
+    const isScholar = pct >= 80;
+    const isSpeed   = timeLeft >= 180;
+    const hour      = now.getHours();
+    const earlyBird = hour < 9 ? 1 : 0;
+    const nightOwl  = hour >= 21 ? 1 : 0;
+    const oldBest   = userData.bestScore || 0;
+    const newBest   = Math.max(pct, oldBest);
+
+    await db.collection('users').doc(user.uid).set({
+      name: user.displayName || userData.name || 'User',
+      email: user.email,
+      totalPoints: firebase.firestore.FieldValue.increment(xpEarned),
+      totalXp: newTotalXp,
+      xp: getXpProgress(newTotalXp).current,
+      level: newLevel,
+      quizzesTaken: firebase.firestore.FieldValue.increment(1),
+      bestScore: newBest,
+      bestScoreFormat: 'percentage',
+      currentStreak: streak,
+      longestStreak: Math.max(streak, userData.longestStreak || 0),
+      lastQuizDate: firebase.firestore.FieldValue.serverTimestamp(),
+      comebacks: comebacks,
+      perfectScores: firebase.firestore.FieldValue.increment(isPerfect ? 1 : 0),
+      scholarScores: firebase.firestore.FieldValue.increment(isScholar ? 1 : 0),
+      speedRuns: firebase.firestore.FieldValue.increment(isSpeed ? 1 : 0),
+      earlyBird: firebase.firestore.FieldValue.increment(earlyBird),
+      nightOwl: firebase.firestore.FieldValue.increment(nightOwl),
+    }, { merge: true });
+
+    // Log quiz attempt
+    await db.collection('quizAttempts').add({
+      userId: user.uid,
+      userName: user.displayName || userData.name || 'User',
+      score, totalQuestions, percentage: pct, timeLeft,
+      points: xpEarned, xpEarned,
+      timestamp: firebase.firestore.FieldValue.serverTimestamp()
     });
 
-    if (leveledUp) playLevelUpSound();
-    else           playCelebrationSound();
+    // Update leaderboard
+    await updateWeeklyLeaderboard(user.uid, user.displayName || userData.name || 'User', xpEarned);
 
-    return {
-      xpEarned, leveledUp, newLevel, oldLevel,
-      questBonusXp, completedQuests: questResult.completedQuests || [],
-      allQuestsCompleted: questResult.allCompleted || false,
-      newBadge, newAchievements: newAchs,
-      score, pct, streak, newTotalXp,
-    };
+    // Check badges & achievements
+    const newBadge = await checkAndAwardBadges(user.uid).catch(() => null);
+    const freshDoc = await db.collection('users').doc(user.uid).get();
+    const freshData = freshDoc.data() || {};
+    const newAchs = await updateAchievements(user.uid, {
+      perfectScores: freshData.perfectScores || 0,
+      quizzesTaken: freshData.quizzesTaken || 0,
+      currentStreak: streak,
+      totalXp: newTotalXp,
+      speedRuns: freshData.speedRuns || 0,
+      scholarScores: freshData.scholarScores || 0,
+      questsCompleted: freshData.questsCompleted || 0,
+      level: newLevel,
+      badgesEarned: freshData.badgesEarned || 0,
+    }).catch(() => []);
+
+    result.newBadge = newBadge;
+    result.newAchievements = newAchs;
+
   } catch (err) {
-    console.error('saveQuizResult error:', err);
-    return { xpEarned: 0, leveledUp: false, newLevel: 1, questBonusXp: 0, completedQuests: [] };
+    console.error('Firestore save failed (quiz still valid):', err);
+    // Return the locally calculated result — user still sees their XP!
   }
+
+  if (leveledUp) playLevelUpSound();
+  else playCelebrationSound();
+
+  return result;
 }
+
 window.saveQuizResult = saveQuizResult;
 
 
@@ -1597,31 +1606,56 @@ window.claimMilestoneReward = claimMilestoneReward;
 async function checkDailyQuizLimit() {
   const user = auth.currentUser;
   if (!user) return { blocked: true, remaining: 0, reason: 'not_logged_in' };
+  
   try {
     const now       = new Date();
     const dayStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayEnd    = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
+    const dayEnd    = new Date(dayStart); 
+    dayEnd.setDate(dayEnd.getDate() + 1);
 
-    // Convert to Firestore Timestamps for proper comparison
-    const startTs = firebase.firestore.Timestamp.fromDate(dayStart);
-    const endTs   = firebase.firestore.Timestamp.fromDate(dayEnd);
-
+    // Use simple query without timestamp range first (avoids index requirement)
     const snap = await db.collection('quizAttempts')
-      .where('userId','==',user.uid)
-      .where('timestamp','>=',startTs)
-      .where('timestamp','<<',endTs)
+      .where('userId', '==', user.uid)
+      .orderBy('timestamp', 'desc')
+      .limit(10)
       .get();
 
-    const taken     = snap.size;
-    const remaining = Math.max(0, 2 - taken);
+    let takenToday = 0;
+    const todayStr = now.toDateString();
+    
+    snap.forEach(doc => {
+      const ts = doc.data().timestamp;
+      if (ts) {
+        const docDate = ts.toDate ? ts.toDate() : new Date(ts);
+        if (docDate.toDateString() === todayStr) takenToday++;
+      }
+    });
+
+    const remaining = Math.max(0, 2 - takenToday);
+    
     if (remaining <= 0) {
-      const ms = dayEnd - now;
-      return { blocked: true, nextQuizTime: dayEnd, msUntilMidnight: ms, takenToday: taken, remaining: 0 };
+      const msUntilMidnight = dayEnd - now;
+      return { 
+        blocked: true, 
+        nextQuizTime: dayEnd, 
+        msUntilMidnight: msUntilMidnight, 
+        takenToday: takenToday, 
+        remaining: 0 
+      };
     }
-    return { blocked: false, takenToday: taken, remaining };
+    
+    return { blocked: false, takenToday: takenToday, remaining: remaining };
+    
   } catch (err) {
     console.error('checkDailyQuizLimit error:', err);
-    return { blocked: true, remaining: 0, reason: 'check_failed', error: err.message };
+    // Return a permissive fallback so users can still quiz
+    return { 
+      blocked: false, 
+      takenToday: 0, 
+      remaining: 2, 
+      reason: 'check_failed',
+      error: err.message 
+    };
   }
 }
 
