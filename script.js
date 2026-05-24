@@ -428,51 +428,63 @@ async function submitQuiz() {
   closeSubmitModal();
   clearQuizState();
 
-  // Safety check: ensure calculateScore exists
-  if (typeof calculateScore !== 'function') {
-    console.error('calculateScore is not defined!');
-    // Fallback calculation
-    let correct = 0;
-    for (let i = 0; i < selectedQuestions.length; i++) {
-      if (userAnswers[i] !== undefined && selectedQuestions[i] && selectedQuestions[i].answer === userAnswers[i]) correct++;
+  // Calculate score inline (don't rely on external function)
+  let score = 0;
+  for (let i = 0; i < selectedQuestions.length; i++) {
+    if (userAnswers[i] !== undefined && selectedQuestions[i] && selectedQuestions[i].answer === userAnswers[i]) {
+      score++;
     }
-    window._tempScore = correct;
   }
 
-  const score = (typeof calculateScore === 'function') ? calculateScore() : window._tempScore;
-
-  // Show loading state
+  // Show loading
   if (questionTextEl) questionTextEl.textContent = 'Calculating your results... 🕊️';
   if (optionsEl) optionsEl.innerHTML = '';
 
-  let resultData = { 
-    xpEarned: 0, leveledUp: false, newLevel: 1, streak: 0, 
-    pct: Math.round((score / TOTAL_QUESTIONS) * 100), 
-    completedQuests: [] 
-  };
+  const pct = Math.round((score / TOTAL_QUESTIONS) * 100);
+  
+  // Local XP calculation (always works)
+  let xpEarned = score * 10 + 50; // base + completion
+  if (pct >= 90) xpEarned += 90;
+  if (pct >= 70) xpEarned += 40;
 
-  // Calculate local XP as fallback
-  const pct = score / TOTAL_QUESTIONS;
-  let localXp = score * 10 + 50;
-  if (pct >= 0.9) localXp += 90;
-  if (pct >= 0.7) localXp += 40;
-  resultData.xpEarned = localXp;
+  let resultData = { 
+    xpEarned: xpEarned, 
+    leveledUp: false, 
+    newLevel: 1, 
+    streak: 0, 
+    pct: pct, 
+    completedQuests: [],
+    newBadge: null,
+    newAchievements: []
+  };
 
   // Try Firestore save
   if (typeof saveQuizResult === 'function' && firebase.auth().currentUser) {
     try {
       const firestoreResult = await saveQuizResult(score, TOTAL_QUESTIONS, timeLeft, 0);
-      resultData = { ...resultData, ...firestoreResult };
+      if (firestoreResult && typeof firestoreResult === 'object') {
+        resultData = { ...resultData, ...firestoreResult };
+      }
     } catch (err) {
-      console.error('saveQuizResult failed, using local calculation:', err);
+      console.error('saveQuizResult failed:', err);
+      // Keep local calculation
     }
   }
 
-  // Navigate to result screen
-  if (typeof window.showScreen === 'function') window.showScreen('result');
+  // Go to results
+  if (typeof window.showScreen === 'function') {
+    window.showScreen('result');
+  }
 
-  // Render results
-  await showResults(score, resultData);
+  // Show results
+  if (typeof window.showResultScreenV2 === 'function') {
+    await window.showResultScreenV2(resultData, score, TOTAL_QUESTIONS, timeLeft);
+  } else {
+    showResultsFallback(score, resultData);
+  }
+  
+  // Render chart
+  renderChart(score, TOTAL_QUESTIONS - score);
 }
 
 // ============================================
