@@ -829,13 +829,17 @@ async function updateUIForLoggedInUser(user) {
       showToast('📱 Please complete your profile to continue', 'info');
       showQuizAttemptsLeft(0);
     } else {
-      const limitCheck = await checkDailyQuizLimit();
-      if (limitCheck.blocked && limitCheck.reason !== 'check_failed') {
-        showDailyLimitMessage(limitCheck);
-      } else {
-        showQuizAttemptsLeft(limitCheck.remaining || 2);
-      }
+      // Inside updateUIForLoggedInUser(), replace the limit check block with:
+const limitCheck = await checkDailyQuizLimit();
+if (limitCheck.blocked && limitCheck.reason !== 'check_failed') {
+  showDailyLimitMessage(limitCheck);
+} else if (limitCheck.reason === 'check_failed') {
+  showQuizAttemptsLeft(null, true, true); // shows error state
+} else {
+  showQuizAttemptsLeft(limitCheck.remaining);
+}
     }
+
 
     // Update league display
     const entries = await fetchLeaderboard();
@@ -904,10 +908,23 @@ async function saveQuizResult(score, totalQuestions, timeLeft, pointsLegacy) {
   const user = auth.currentUser;
   if (!user) return { xpEarned: 0, leveledUp: false, newLevel: 1, questBonus: 0, completedQuests: [] };
 
-  try {
-    const userRef  = db.collection('users').doc(user.uid);
-    const userDoc  = await userRef.get();
-    const data     = userDoc.data() || {};
+  // Inside saveQuizResult(), wrap the quizAttempts.add() in try-catch:
+try {
+  await db.collection('quizAttempts').add({
+    userId: user.uid,
+    userName: user.displayName || data.name || 'User',
+    score, totalQuestions, percentage: pct, timeLeft,
+    points: xpEarned, xpEarned,
+    timestamp: firebase.firestore.FieldValue.serverTimestamp()
+  });
+} catch (logErr) {
+  console.error('Quiz attempt log failed (non-fatal):', logErr);
+  // Keep going — don't let this kill the leaderboard
+}
+
+// Weekly leaderboard (moved outside the try-catch)
+await updateWeeklyLeaderboard(user.uid, user.displayName || data.name || 'User', xpEarned);
+
 
     // ── Streak calc ──
     const now          = new Date();
