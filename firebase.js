@@ -1602,10 +1602,14 @@ async function checkDailyQuizLimit() {
     const dayStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const dayEnd    = new Date(dayStart); dayEnd.setDate(dayEnd.getDate() + 1);
 
+    // Convert to Firestore Timestamps for proper comparison
+    const startTs = firebase.firestore.Timestamp.fromDate(dayStart);
+    const endTs   = firebase.firestore.Timestamp.fromDate(dayEnd);
+
     const snap = await db.collection('quizAttempts')
       .where('userId','==',user.uid)
-      .where('timestamp','>=',dayStart)
-      .where('timestamp','<',dayEnd)
+      .where('timestamp','>=',startTs)
+      .where('timestamp','<<',endTs)
       .get();
 
     const taken     = snap.size;
@@ -1616,9 +1620,11 @@ async function checkDailyQuizLimit() {
     }
     return { blocked: false, takenToday: taken, remaining };
   } catch (err) {
+    console.error('checkDailyQuizLimit error:', err);
     return { blocked: true, remaining: 0, reason: 'check_failed', error: err.message };
   }
 }
+
 
 function showQuizAttemptsLeft(attempts, isLoading, isError) {
   const el = document.getElementById('quiz-attempts-left');
