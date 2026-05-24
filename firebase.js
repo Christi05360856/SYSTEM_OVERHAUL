@@ -1132,26 +1132,44 @@ window.showResultScreenV2 = showResultScreenV2;
 // LEADERBOARD FUNCTIONS
 // ============================================
 
+// OLD (delete)
+// async function updateWeeklyLeaderboard(userId, userName, points) { ... }
+
+// NEW
 async function updateWeeklyLeaderboard(userId, userName, points) {
   const weekId = getCurrentWeekId();
-  const ref    = db.collection('leaderboard').doc(weekId);
+  const ref = db.collection('leaderboard').doc(weekId).collection('entries').doc(userId);
   try {
-    const doc    = await ref.get();
-    let entries  = doc.exists ? (doc.data().entries || []) : [];
-    const idx    = entries.findIndex(e => e.userId === userId);
-    if (idx >= 0) { entries[idx].points += points; entries[idx].name = userName; }
-    else          entries.push({ userId, name: userName, points });
-    entries.sort((a, b) => b.points - a.points);
-    await ref.set({ weekStart: getWeekStart(), weekEnd: getWeekEnd(), entries }, { merge: true });
-  } catch (err) { console.error('Leaderboard update error:', err); }
+    const doc = await ref.get();
+    const current = doc.exists ? (doc.data().points || 0) : 0;
+    await ref.set({
+      userId,
+      name: userName,
+      points: current + points,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+  } catch (err) {
+    console.error('Leaderboard update error:', err);
+  }
 }
 
+// OLD (delete)
+// async function fetchLeaderboard() { ... }
+
+// NEW
 async function fetchLeaderboard() {
   try {
-    const doc = await db.collection('leaderboard').doc(getCurrentWeekId()).get();
-    return doc.exists ? (doc.data().entries || []) : [];
-  } catch (err) { return []; }
+    const snap = await db.collection('leaderboard')
+      .doc(getCurrentWeekId())
+      .collection('entries')
+      .orderBy('points', 'desc')
+      .get();
+    return snap.docs.map(d => ({ userId: d.id, ...d.data() }));
+  } catch (err) {
+    return [];
+  }
 }
+
 
 async function renderLeaderboard() {
   const container = document.getElementById('leaderboard-list');
