@@ -421,38 +421,39 @@ async function submitQuiz() {
 
   const score = calculateScore();
 
-  // Show quiz screen loading state briefly
+  // Show loading state
   if (questionTextEl) questionTextEl.textContent = 'Calculating your results... 🕊️';
-  if (optionsEl)      optionsEl.innerHTML = '';
+  if (optionsEl) optionsEl.innerHTML = '';
 
-  let resultData = { xpEarned: 0, leveledUp: false, newLevel: 1, streak: 0, pct: 0, completedQuests: [] };
+  let resultData = { 
+    xpEarned: 0, leveledUp: false, newLevel: 1, streak: 0, 
+    pct: Math.round((score / TOTAL_QUESTIONS) * 100), 
+    completedQuests: [] 
+  };
 
+  // Calculate local XP as fallback
+  const localXp = score * 10 + 50 + Math.min(70, (resultData.streak || 0) * 10);
+  if (score / TOTAL_QUESTIONS >= 0.9) resultData.xpEarned += 90;
+  if (score / TOTAL_QUESTIONS >= 0.7) resultData.xpEarned += 40;
+  resultData.xpEarned = localXp;
+
+  // Try Firestore save
   if (typeof saveQuizResult === 'function' && firebase.auth().currentUser) {
     try {
-      resultData = await saveQuizResult(score, TOTAL_QUESTIONS, timeLeft, 0);
+      const firestoreResult = await saveQuizResult(score, TOTAL_QUESTIONS, timeLeft, 0);
+      // Merge Firestore result with local fallback (Firestore wins if it worked)
+      resultData = { ...resultData, ...firestoreResult };
     } catch (err) {
-      console.error('saveQuizResult error:', err);
-      resultData.pct = Math.round((score / TOTAL_QUESTIONS) * 100);
+      console.error('saveQuizResult failed, using local calculation:', err);
+      // Keep the locally calculated resultData
     }
-  } else {
-    resultData.pct = Math.round((score / TOTAL_QUESTIONS) * 100);
   }
 
   // Navigate to result screen
   if (typeof window.showScreen === 'function') window.showScreen('result');
 
-  // Render the result v2 screen
+  // Render results
   await showResults(score, resultData);
-}
-
-function calculateScore() {
-  let correct = 0;
-  for (let i = 0; i < selectedQuestions.length; i++) {
-    if (userAnswers[i] !== undefined &&
-        selectedQuestions[i] &&
-        selectedQuestions[i].answer === userAnswers[i]) correct++;
-  }
-  return correct;
 }
 
 // ============================================
