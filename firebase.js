@@ -808,7 +808,7 @@ async function updateUIForLoggedInUser(user) {
 
   showQuizAttemptsLeft(null, true);
 
-  try {
+    try {
     const doc  = await db.collection('users').doc(user.uid).get();
     const data = doc.data() || {};
 
@@ -829,15 +829,29 @@ async function updateUIForLoggedInUser(user) {
       showToast('📱 Please complete your profile to continue', 'info');
       showQuizAttemptsLeft(0);
     } else {
-      // Inside updateUIForLoggedInUser(), replace the limit check block with:
-const limitCheck = await checkDailyQuizLimit();
-if (limitCheck.blocked && limitCheck.reason !== 'check_failed') {
-  showDailyLimitMessage(limitCheck);
-} else if (limitCheck.reason === 'check_failed') {
-  showQuizAttemptsLeft(null, true, true); // shows error state
-} else {
-  showQuizAttemptsLeft(limitCheck.remaining);
-}
+      const limitCheck = await checkDailyQuizLimit();
+      if (limitCheck.blocked && limitCheck.reason !== 'check_failed') {
+        showDailyLimitMessage(limitCheck);
+      } else if (limitCheck.reason === 'check_failed') {
+        showQuizAttemptsLeft(null, true, true);
+      } else {
+        showQuizAttemptsLeft(limitCheck.remaining);
+      }
+    }
+
+    // Update league display
+    const entries = await fetchLeaderboard();
+    const rank    = entries.findIndex(e => e.userId === user.uid) + 1;
+    if (rank > 0) {
+      const league = getUserLeague(0, rank);
+      updateLeagueBadges(league);
+    }
+  } catch (err) {
+    console.error('updateUIForLoggedInUser error:', err);
+    showQuizAttemptsLeft(2);
+  }
+
+  setTimeout(() => checkNotificationStatus(), 1000);
     }
 
 
