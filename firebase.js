@@ -1150,23 +1150,34 @@ window.showResultScreenV2 = showResultScreenV2;
 
 async function updateWeeklyLeaderboard(userId, userName, points) {
   const weekId = getCurrentWeekId();
-  const ref = db.collection('leaderboard').doc(weekId).collection('entries').doc(userId);
+  const userRef = db.collection('leaderboard').doc(weekId).collection('entries').doc(userId);
   
   try {
-    const doc = await ref.get();
+    const doc = await userRef.get();
     const current = doc.exists ? (doc.data().points || 0) : 0;
     
-    await ref.set({
+    await userRef.set({
       userId: userId,
       name: userName,
       points: current + points,
       updatedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     
-    console.log('Leaderboard updated:', weekId, userId, current + points);
+    console.log('✅ Leaderboard updated:', weekId, userName, current + points);
   } catch (err) {
-    console.error('Leaderboard update error:', err);
-    // Non-fatal — quiz still valid
+    console.error('❌ Leaderboard update FAILED:', err);
+    // Try once more with a simpler write
+    try {
+      await userRef.set({
+        userId: userId,
+        name: userName,
+        points: points,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      console.log('✅ Leaderboard updated (retry):', weekId, userName, points);
+    } catch (retryErr) {
+      console.error('❌ Leaderboard retry also failed:', retryErr);
+    }
   }
 }
 
@@ -1609,37 +1620,43 @@ async function checkDailyQuizLimit() {
   if (!user) return { blocked: true, remaining: 0, reason: 'not_logged_in' };
   
   try {
-    const now       = new Date();
-    const dayStart  = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const dayEnd    = new Date(dayStart); 
-    dayEnd.setDate(dayEnd.getDate() + 1);
-
-    // Use simple query without timestamp range first (avoids index requirement)
+    const now = new Date();
+    
+    // Get all attempts for this user, ordered by newest first
     const snap = await db.collection('quizAttempts')
       .where('userId', '==', user.uid)
       .orderBy('timestamp', 'desc')
-      .limit(10)
+      .limit(20)
       .get();
 
     let takenToday = 0;
-    const todayStr = now.toDateString();
+    const todayYear = now.getFullYear();
+    const todayMonth = now.getMonth();
+    const todayDate = now.getDate();
     
     snap.forEach(doc => {
-      const ts = doc.data().timestamp;
-      if (ts) {
-        const docDate = ts.toDate ? ts.toDate() : new Date(ts);
-        if (docDate.toDateString() === todayStr) takenToday++;
+      const data = doc.data();
+      const ts = data.timestamp;
+      if (ts && ts.toDate) {
+        const d = ts.toDate();
+        // Check if same calendar day
+        if (d.getFullYear() === todayYear && 
+            d.getMonth() === todayMonth && 
+            d.getDate() === todayDate) {
+          takenToday++;
+        }
       }
     });
 
     const remaining = Math.max(0, 2 - takenToday);
     
     if (remaining <= 0) {
-      const msUntilMidnight = dayEnd - now;
+      const tomorrow = new Date(todayYear, todayMonth, todayDate + 1);
+      const msUntil = tomorrow - now;
       return { 
         blocked: true, 
-        nextQuizTime: dayEnd, 
-        msUntilMidnight: msUntilMidnight, 
+        nextQuizTime: tomorrow, 
+        msUntilMidnight: msUntil, 
         takenToday: takenToday, 
         remaining: 0 
       };
@@ -1649,78 +1666,9 @@ async function checkDailyQuizLimit() {
     
   } catch (err) {
     console.error('checkDailyQuizLimit error:', err);
-    // Return a permissive fallback so users can still quiz
-    return { 
-      blocked: false, 
-      takenToday: 0, 
-      remaining: 2, 
-      reason: 'check_failed',
-      error: err.message 
-    };
+    // FAIL OPEN — let them quiz if check breaks
+    return { blocked: false, takenToday: 0, remaining: 2, reason: 'check_failed' };
   }
-}
-
-
-function showQuizAttemptsLeft(attempts, isLoading, isError) {
-  const el = document.getElementById('quiz-attempts-left');
-  if (!el) return;
-
-  if (isLoading) {
-    el.textContent = isError ? '⚠️ Unable to check daily limit. Tap Begin Test to retry.' : '🎯 Checking daily limit...';
-    el.classList.remove('hidden');
-    el.style.background   = isError ? '#fee2e2' : '#f0f9ff';
-    el.style.borderColor  = isError ? '#fca5a5' : '#bae6fd';
-    el.style.color        = isError ? '#991b1b' : '#0369a1';
-    return;
-  }
-
-  if (typeof attempts === 'number' && attempts > 0) {
-    el.textContent = `🎯 ${attempts} of 2 quiz attempts left today`;
-    el.classList.remove('hidden');
-    el.style.background  = '#f0f9ff';
-    el.style.borderColor = '#bae6fd';
-    el.style.color       = '#0369a1';
-  } else {
-    el.classList.add('hidden');
-  }
-}
-
-let countdownInterval = null;
-
-function showDailyLimitMessage(timeData) {
-  const actionsDiv = document.querySelector('.welcome-actions');
-  if (!actionsDiv) return;
-
-  const hours   = Math.floor(timeData.msUntilMidnight / (1000 * 60 * 60));
-  const minutes = Math.floor((timeData.msUntilMidnight % (1000 * 60 * 60)) / (1000 * 60));
-  const seconds = Math.floor((timeData.msUntilMidnight % (1000 * 60)) / 1000);
-
-  actionsDiv.innerHTML = `
-    <div style="background:var(--warning-bg);border:2px solid var(--accent);border-radius:16px;padding:24px;text-align:center;">
-      <div style="font-size:48px;margin-bottom:12px">⏳</div>
-      <h3 style="color:#92400e;margin-bottom:8px;">Daily limit reached!</h3>
-      <p style="color:#a16207;font-size:14px;margin-bottom:16px;">You can take 2 quizzes per day. Come back tomorrow!</p>
-      <div style="font-size:32px;font-weight:900;color:#92400e;font-variant-numeric:tabular-nums" id="countdown-timer">
-        ${String(hours).padStart(2,'0')}:${String(minutes).padStart(2,'0')}:${String(seconds).padStart(2,'0')}
-      </div>
-      <p style="font-size:12px;color:#a16207;margin-top:8px">until next quiz</p>
-    </div>`;
-
-  startCountdown(timeData.msUntilMidnight);
-}
-
-function startCountdown(ms) {
-  clearInterval(countdownInterval);
-  let remaining = ms;
-  countdownInterval = setInterval(() => {
-    remaining -= 1000;
-    if (remaining <= 0) { clearInterval(countdownInterval); location.reload(); return; }
-    const h = Math.floor(remaining / (1000*60*60));
-    const m = Math.floor((remaining % (1000*60*60)) / (1000*60));
-    const s = Math.floor((remaining % (1000*60)) / 1000);
-    const el = document.getElementById('countdown-timer');
-    if (el) el.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-  }, 1000);
 }
 
 // ============================================
