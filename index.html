@@ -1,0 +1,801 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"/>
+  <title>ScriptureQuest</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🕊️</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ==================== GLOBAL UI ==================== -->
+  
+  <!-- Fixed Logout (visible when logged in) -->
+  <button id="fixed-logout-btn" class="fixed-logout hidden" onclick="handleLogout()" aria-label="Logout">
+    <i class="fas fa-sign-out-alt"></i>
+  </button>
+
+  <!-- Sound Toggle (global, top-left) -->
+  <button id="sound-toggle-btn" class="sound-toggle hidden" onclick="toggleSound()" aria-label="Toggle sound">
+    <i class="fas fa-volume-up" id="sound-icon"></i>
+  </button>
+
+  <!-- Dark Mode Toggle (global, top-left below sound) -->
+  <button id="theme-toggle-btn" class="theme-toggle hidden" onclick="toggleDarkMode()" aria-label="Toggle dark mode">
+    <i class="fas fa-moon" id="theme-icon"></i>
+  </button>
+
+  <!-- WhatsApp Admin FAB -->
+  <a href="https://wa.me/+2349167055488?text=Hello%20ScriptureQuest%20Admin!" 
+     id="whatsapp-fab" class="whatsapp-fab hidden" target="_blank" rel="noopener" aria-label="Contact admin on WhatsApp">
+    <i class="fab fa-whatsapp"></i>
+  </a>
+
+  <!-- Wisdom Mascot Container -->
+  <div id="wisdom-mascot" class="wisdom-mascot hidden" aria-hidden="true">
+    <div class="wisdom-body">🕊️</div>
+    <div class="wisdom-speech-bubble hidden" id="wisdom-speech"></div>
+  </div>
+
+  <!-- Live Leaderboard Indicator -->
+  <div id="live-indicator" class="live-indicator hidden">
+    <span class="live-dot"></span>
+    <span class="live-text">LIVE</span>
+  </div>
+
+  <!-- Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- ==================== AUTH MODAL ==================== -->
+  <div id="auth-modal" class="modal hidden">
+    <div class="modal-content auth-modal-content">
+      <div class="auth-header">
+        <div class="wisdom-small">🕊️</div>
+        <h2>Welcome to ScriptureQuest</h2>
+        <p>Study to show yourself approved</p>
+      </div>
+      <div class="auth-tabs">
+        <button id="login-tab" class="auth-tab active" onclick="switchAuthTab('login')">Login</button>
+        <button id="register-tab" class="auth-tab" onclick="switchAuthTab('register')">Register</button>
+      </div>
+      <div id="auth-error" class="auth-error"></div>
+
+      <form id="login-form" class="auth-form" onsubmit="handleLogin(event)">
+        <input type="email" id="login-email" placeholder="Email" required autocomplete="email">
+        <input type="password" id="login-password" placeholder="Password" required autocomplete="current-password">
+        <button type="submit" class="primary-btn auth-submit">Sign In</button>
+      </form>
+
+      <form id="register-form" class="auth-form hidden" onsubmit="handleRegister(event)">
+        <input type="text" id="reg-name" placeholder="Full Name" required autocomplete="name">
+        <input type="email" id="reg-email" placeholder="Email" required autocomplete="email">
+        <input type="password" id="reg-password" placeholder="Password (min 6 chars)" required autocomplete="new-password">
+        <button type="submit" class="primary-btn auth-submit">Create Account</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ==================== PROFILE REQUIRED MODAL ==================== -->
+  <div id="profile-required-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-icon">📱</div>
+      <h3>Complete Your Profile</h3>
+      <p class="modal-subtitle">Add your phone and network to receive data rewards</p>
+      <input type="tel" id="req-phone" placeholder="Phone (e.g. 08012345678)" required>
+      <select id="req-network" required>
+        <option value="">Select Network</option>
+        <option value="MTN">MTN</option>
+        <option value="Airtel">Airtel</option>
+        <option value="Glo">Glo</option>
+        <option value="9mobile">9mobile</option>
+      </select>
+      <button onclick="saveRequiredContact()" class="primary-btn" style="width:100%">Save & Continue</button>
+    </div>
+  </div>
+
+  <!-- ==================== NOTIFICATION MODAL ==================== -->
+  <div id="notification-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-icon">🔔</div>
+      <h3>Enable Daily Reminders</h3>
+      <p class="modal-subtitle">Stay on top of your Bible study! Get notified for new weeks, challenges, and streak alerts.</p>
+      <button id="enable-notify-btn" class="primary-btn" style="width:100%; margin-bottom:10px">Enable Notifications</button>
+      <p class="modal-note">Required for streak reminders and challenge alerts</p>
+    </div>
+  </div>
+
+  <!-- ==================== SUBMIT CONFIRM MODAL ==================== -->
+  <div id="confirm-modal" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-icon">⚠️</div>
+      <h3>Submit Quiz?</h3>
+      <p>You answered <span id="answered-count">0</span> of 15 questions</p>
+      <div class="modal-actions">
+        <button onclick="closeSubmitModal()" class="secondary-btn">Cancel</button>
+        <button onclick="submitQuiz()" class="primary-btn">Yes, Submit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== NEW WEEK BANNER (injected via JS) ==================== -->
+
+  <!-- ==================== MAIN APP ==================== -->
+  <main class="app">
+
+    <!-- ==================== SCREEN 1: LANDING / HOME ==================== -->
+    <section id="landing-screen" class="screen center">
+      <div class="card landing-card">
+        <!-- Wisdom Mascot (landing variant) -->
+        <div class="wisdom-landing">🕊️</div>
+        
+        <div class="logo-text">
+          <h1>ScriptureQuest</h1>
+          <p class="subtitle">15 Questions • 6 Minutes • Daily Quests</p>
+        </div>
+
+        <!-- Auth Section (logged out) -->
+        <div id="auth-section" class="auth-section">
+          <p class="auth-prompt">🔐 Login or create an account to begin</p>
+          <button id="auth-btn" class="primary-btn begin-btn" onclick="showAuthModal()">Login / Register</button>
+        </div>
+
+        <!-- Welcome Section (logged in) -->
+        <div id="welcome-section" class="welcome-section hidden">
+          <div class="welcome-message">
+            <h2>Welcome back, <span id="welcome-name">Champion</span>! 🎉</h2>
+            <p class="welcome-subtitle">Ready for today's quest?</p>
+            <p class="welcome-challenge">🏆 Top the leaderboard and claim amazing rewards!</p>
+            <p class="welcome-verse">"Study to show yourself approved..." — 2 Timothy 2:15</p>
+          </div>
+
+          <!-- Daily Quests Preview -->
+          <div id="daily-quests-preview" class="daily-quests-preview hidden">
+            <h4>📋 Today's Quests</h4>
+            <div id="quests-preview-list" class="quests-preview-list"></div>
+          </div>
+
+          <!-- XP & Level Display -->
+          <div id="xp-level-display" class="xp-level-display hidden">
+            <div class="level-badge" id="level-badge">Lv. 1</div>
+            <div class="xp-bar-container">
+              <div class="xp-bar-fill" id="xp-bar-fill"></div>
+            </div>
+            <div class="xp-text" id="xp-text">0 / 100 XP</div>
+          </div>
+
+          <div class="welcome-actions" id="welcome-actions">
+            <button id="begin-test-btn" class="primary-btn begin-btn" onclick="handleBeginQuiz()">📝 Begin Test</button>
+            <button id="resume-quiz-btn" class="primary-btn resume-btn hidden" onclick="resumeQuiz()">▶️ Resume Quiz</button>
+            <p id="quiz-attempts-left" class="attempts-left hidden"></p>
+          </div>
+        </div>
+
+        <p class="footer">ScriptureQuest by TechGuru Systems</p>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 2: QUIZ ==================== -->
+    <section id="quiz-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <div class="progress">Question <span id="current-num">1</span> / 15</div>
+          <div id="timer" class="timer">06:00</div>
+          <div id="display-name" class="username-display"></div>
+        </div>
+
+        <!-- Wisdom Mascot (quiz hint mode) -->
+        <div id="wisdom-quiz-hint" class="wisdom-quiz-hint hidden">
+          <span class="wisdom-hint-emoji">🕊️</span>
+          <span class="wisdom-hint-text" id="wisdom-hint-text">Take your time!</span>
+        </div>
+
+        <div class="card question-card">
+          <div class="question-number">Question <span id="q-num">1</span></div>
+          <h2 id="question-text">Loading question...</h2>
+          <div id="options" class="options"></div>
+          
+          <div id="feedback-area" class="feedback-area hidden">
+            <div class="feedback-emoji" id="feedback-emoji"></div>
+            <div class="feedback-message" id="feedback-message"></div>
+          </div>
+        </div>
+
+        <div class="nav-controls">
+          <button id="prev-btn" class="secondary-btn" onclick="navigate(-1)">Previous</button>
+          <button id="next-btn" class="primary-btn" onclick="navigate(1)">Next</button>
+          <button id="submit-btn" class="danger-btn" onclick="openSubmitModal()">Submit</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 3: RESULTS v2 (Duolingo Style) ==================== -->
+    <section id="result-screen" class="screen center hidden">
+      <div class="card result-card result-v2">
+        <!-- Wisdom Celebration -->
+        <div id="wisdom-celebration" class="wisdom-celebration">
+          <div class="wisdom-party">🕊️</div>
+          <div class="confetti-container" id="confetti-container"></div>
+        </div>
+
+        <div class="result-header">
+          <h2 id="result-title">Lesson Complete!</h2>
+          <p id="candidate-name"></p>
+        </div>
+
+        <!-- XP Pop-up Animation -->
+        <div id="xp-popup" class="xp-popup hidden">
+          <div class="xp-popup-value" id="xp-popup-value">+0 XP</div>
+        </div>
+
+        <!-- Level Up Banner -->
+        <div id="level-up-banner" class="level-up-banner hidden">
+          <div class="level-up-content">
+            <span class="level-up-emoji">🎉</span>
+            <h3>Level Up!</h3>
+            <p>You reached <span id="new-level">Level 2</span>!</p>
+          </div>
+        </div>
+
+        <!-- Stat Cards Grid -->
+        <div class="stat-cards-grid">
+          <div class="stat-card">
+            <div class="stat-card-icon">🎯</div>
+            <div class="stat-card-value" id="stat-accuracy">0%</div>
+            <div class="stat-card-label">Accuracy</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-icon">⚡</div>
+            <div class="stat-card-value" id="stat-speed">0:00</div>
+            <div class="stat-card-label">Time Left</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-card-icon">🔥</div>
+            <div class="stat-card-value" id="stat-streak">0</div>
+            <div class="stat-card-label">Streak</div>
+          </div>
+          <div class="stat-card highlight">
+            <div class="stat-card-icon">⭐</div>
+            <div class="stat-card-value" id="stat-xp">+0</div>
+            <div class="stat-card-label">XP Earned</div>
+          </div>
+        </div>
+
+        <!-- Score Circle -->
+        <div class="score-circle-container">
+          <div class="score-circle">
+            <span id="score-display">0%</span>
+            <small id="detailed-score">0 / 15</small>
+          </div>
+          <div class="score-badge" id="score-badge">Keep Going!</div>
+        </div>
+
+        <!-- Chart -->
+        <div class="chart-area">
+          <canvas id="resultChart"></canvas>
+        </div>
+
+        <!-- Quests Completed -->
+        <div id="quests-completed" class="quests-completed hidden">
+          <h4>🎯 Quests Completed</h4>
+          <div id="quests-completed-list" class="quests-completed-list"></div>
+          <div id="quest-bonus-xp" class="quest-bonus-xp hidden">+100 Bonus XP!</div>
+        </div>
+
+        <!-- Study Tip -->
+        <div id="study-tip" class="study-tip"></div>
+
+        <!-- User Dashboard Mini -->
+        <div class="dashboard-section mini">
+          <h3>📊 Your Stats</h3>
+          <div class="dashboard-grid">
+            <div class="dash-card">
+              <div class="dash-value" id="dash-quizzes">0</div>
+              <div class="dash-label">Quizzes</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-value" id="dash-best">0%</div>
+              <div class="dash-label">Best Score</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-value" id="dash-points">0</div>
+              <div class="dash-label">Total XP</div>
+            </div>
+            <div class="dash-card">
+              <div class="dash-value" id="dash-streak">0</div>
+              <div class="dash-label">Streak</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Weekly Top 3 Notification -->
+        <div id="reward-section" class="reward-section hidden">
+          <div class="reward-banner">
+            <span>🎉 You're in the top 3! Keep it up!</span>
+            <p>Winners finalized Sunday night. Data rewards sent automatically.</p>
+          </div>
+        </div>
+
+        <!-- Result Actions -->
+        <div class="result-actions">
+          <button onclick="navigateTo('rewards')" class="secondary-btn">🎁 My Rewards</button>
+          <button onclick="navigateTo('leaderboard')" class="secondary-btn">🏆 Leaderboard</button>
+          <button onclick="location.reload()" class="primary-btn">🔄 Take Another</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 4: LEADERBOARD v2 ==================== -->
+    <section id="leaderboard-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>🏆 Weekly Leaderboard</h2>
+          <div class="top-bar-badges">
+            <span class="week-badge" id="leaderboard-week-badge">Week 1</span>
+            <span id="league-badge" class="league-badge">Bronze</span>
+          </div>
+        </div>
+
+        <!-- League Info -->
+        <div class="league-info-card">
+          <div class="league-tier-display" id="league-tier-display">
+            <span class="league-icon">🥉</span>
+            <div class="league-details">
+              <h4>Bronze League</h4>
+              <p>Top 10 advance to Silver</p>
+            </div>
+          </div>
+          <div class="league-progress">
+            <div class="league-progress-bar" id="league-progress-bar"></div>
+          </div>
+          <p class="league-countdown" id="league-countdown">2d 14h until league ends</p>
+        </div>
+
+        <div class="card leaderboard-card">
+          <div class="leaderboard-intro">
+            <p>See where you stand among Bible scholars! 📖</p>
+            <p class="leaderboard-motivation">Top 3 win FREE data every week! 🎁</p>
+          </div>
+
+          <!-- Live Indicator (inline) -->
+          <div id="leaderboard-live-indicator" class="leaderboard-live-indicator hidden">
+            <span class="live-pulse"></span> Live updates
+          </div>
+
+          <div id="leaderboard-list" class="leaderboard-list">
+            <p class="loading">Loading leaderboard...</p>
+          </div>
+          <div id="leaderboard-user-rank"></div>
+        </div>
+
+        <!-- Challenge Friend CTA -->
+        <div class="challenge-cta">
+          <button onclick="showChallengeModal()" class="primary-btn challenge-btn">
+            <i class="fas fa-bolt"></i> Challenge a Friend
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 5: REWARDS ==================== -->
+    <section id="rewards-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>🎁 My Rewards</h2>
+          <div id="rewards-user-name" class="username-display"></div>
+        </div>
+
+        <div class="card rewards-card">
+          <!-- Points & Progress -->
+          <div class="rewards-header">
+            <h3>Your Progress</h3>
+            <div class="points-display">
+              <div class="current-points">
+                <span id="reward-current-points">0</span>
+                <span class="points-label">XP</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- XP Progress Bar -->
+          <div class="progress-tracker-large">
+            <div class="progress-bar-large">
+              <div id="reward-progress-fill" class="progress-fill-large"></div>
+            </div>
+            <div class="progress-labels">
+              <span id="current-level-label">Lv.1</span>
+              <span id="next-level-label">Lv.2</span>
+            </div>
+          </div>
+
+          <!-- Milestone Tiers -->
+          <div class="reward-tiers">
+            <div class="reward-tier" data-tier="5000">
+              <div class="tier-icon">📱</div>
+              <div class="tier-info">
+                <h4>1GB Data</h4>
+                <p>Reach 5,000 XP</p>
+              </div>
+              <div class="tier-status" id="tier-5000">Locked 🔒</div>
+            </div>
+            <div class="reward-tier" data-tier="10000">
+              <div class="tier-icon">📱📱</div>
+              <div class="tier-info">
+                <h4>2.5GB Data</h4>
+                <p>Reach 10,000 XP</p>
+              </div>
+              <div class="tier-status" id="tier-10000">Locked 🔒</div>
+            </div>
+            <div class="reward-tier" data-tier="20000">
+              <div class="tier-icon">📱📱📱</div>
+              <div class="tier-info">
+                <h4>5GB Data</h4>
+                <p>Reach 20,000 XP</p>
+              </div>
+              <div class="tier-status" id="tier-20000">Locked 🔒</div>
+            </div>
+          </div>
+
+          <!-- Weekly Top 3 Info -->
+          <div class="weekly-reward-info">
+            <h4>🏆 Weekly Top 3 Bonus</h4>
+            <div class="weekly-tiers">
+              <div class="weekly-tier"><span class="weekly-medal">🥇</span><span>2GB Data</span></div>
+              <div class="weekly-tier"><span class="weekly-medal">🥈</span><span>1GB Data</span></div>
+              <div class="weekly-tier"><span class="weekly-medal">🥉</span><span>500MB Data</span></div>
+            </div>
+            <p class="weekly-note">Top 3 at week end win automatically. No claim needed!</p>
+          </div>
+
+          <!-- Claimed Rewards History -->
+          <div class="claimed-rewards-section hidden" id="claimed-rewards-section">
+            <h4>📦 Your Claims</h4>
+            <div id="claimed-rewards-list" class="claimed-rewards-list"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 6: PROFILE v2 ==================== -->
+    <section id="profile-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>👤 Profile</h2>
+        </div>
+
+        <div class="card profile-card">
+          <!-- Profile Header -->
+          <div class="profile-header-v2">
+            <div class="profile-avatar-v2" id="profile-avatar">?</div>
+            <div class="profile-info-v2">
+              <h3 id="profile-name">User</h3>
+              <div class="profile-badges-row">
+                <span class="level-badge-large" id="profile-level-badge">Lv. 1</span>
+                <span class="league-badge-small" id="profile-league-badge">Bronze</span>
+              </div>
+              <p id="profile-email">user@email.com</p>
+              <p id="profile-joined">Joined: -</p>
+            </div>
+          </div>
+
+          <!-- XP Bar -->
+          <div class="profile-xp-section">
+            <div class="xp-bar-container large">
+              <div class="xp-bar-fill" id="profile-xp-fill"></div>
+            </div>
+            <div class="xp-details">
+              <span id="profile-xp-text">0 / 100 XP</span>
+              <span id="profile-total-xp">0 XP total</span>
+            </div>
+          </div>
+
+          <!-- Stats Grid -->
+          <div class="profile-stats-v2">
+            <div class="profile-stat">
+              <div class="profile-stat-value" id="profile-quizzes">0</div>
+              <div class="profile-stat-label">Quizzes</div>
+            </div>
+            <div class="profile-stat">
+              <div class="profile-stat-value" id="profile-best">0%</div>
+              <div class="profile-stat-label">Best Score</div>
+            </div>
+            <div class="profile-stat">
+              <div class="profile-stat-value" id="profile-points">0</div>
+              <div class="profile-stat-label">Total XP</div>
+            </div>
+            <div class="profile-stat">
+              <div class="profile-stat-value" id="profile-streak">0</div>
+              <div class="profile-stat-label">Streak</div>
+            </div>
+            <div class="profile-stat">
+              <div class="profile-stat-value" id="profile-achievements">0</div>
+              <div class="profile-stat-label">Achievements</div>
+            </div>
+            <div class="profile-stat">
+              <div class="profile-stat-value" id="profile-badges-count">0</div>
+              <div class="profile-stat-label">Badges</div>
+            </div>
+          </div>
+
+          <!-- Contact Details -->
+          <div class="contact-section">
+            <h4>📱 Contact Details <span class="required-tag">Required for Rewards</span></h4>
+            <input type="tel" id="profile-phone" placeholder="Phone Number">
+            <select id="profile-network">
+              <option value="">Select Network</option>
+              <option value="MTN">MTN</option>
+              <option value="Airtel">Airtel</option>
+              <option value="Glo">Glo</option>
+              <option value="9mobile">9mobile</option>
+            </select>
+            <button onclick="saveProfileContact()" class="primary-btn" style="width:100%">Save Contact</button>
+          </div>
+
+          <!-- Quick Links -->
+          <div class="profile-quick-links">
+            <button onclick="navigateTo('history')" class="quick-link-btn">
+              <i class="fas fa-history"></i> Quiz History
+            </button>
+            <button onclick="navigateTo('badges')" class="quick-link-btn">
+              <i class="fas fa-medal"></i> My Badges
+            </button>
+            <button onclick="navigateTo('achievements')" class="quick-link-btn">
+              <i class="fas fa-trophy"></i> Achievements
+            </button>
+          </div>
+
+          <!-- Logout -->
+          <div class="profile-actions">
+            <button onclick="handleLogout()" class="danger-btn" style="width:100%">
+              <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 7: QUIZ HISTORY ==================== -->
+    <section id="history-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>📜 Quiz History</h2>
+          <button onclick="navigateTo('profile')" class="back-btn"><i class="fas fa-arrow-left"></i></button>
+        </div>
+
+        <div class="card history-card">
+          <div class="history-filters">
+            <select id="history-filter" onchange="loadQuizHistory()">
+              <option value="all">All Time</option>
+              <option value="week">This Week</option>
+              <option value="month">This Month</option>
+            </select>
+          </div>
+          <div id="history-list" class="history-list">
+            <p class="loading">Loading history...</p>
+          </div>
+          <div id="history-empty" class="empty-state hidden">
+            <i class="fas fa-history"></i>
+            <p>No quizzes taken yet. Start your first quest!</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 8: BADGES ==================== -->
+    <section id="badges-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>🎖️ Monthly Badges</h2>
+          <button onclick="navigateTo('profile')" class="back-btn"><i class="fas fa-arrow-left"></i></button>
+        </div>
+
+        <div class="card badges-card">
+          <div class="badges-header">
+            <h3>Collectible Badges</h3>
+            <p>Earn 12 monthly badges by taking 10 quizzes each month</p>
+          </div>
+          
+          <div class="badges-grid" id="badges-grid">
+            <!-- Generated by JS -->
+            <div class="badge-item locked" data-month="0">
+              <div class="badge-emoji">🌍</div>
+              <div class="badge-name">Genesis Explorer</div>
+              <div class="badge-month">January</div>
+              <div class="badge-progress">0/10</div>
+            </div>
+            <!-- ... 11 more badges ... -->
+          </div>
+
+          <div class="badges-legend">
+            <span><span class="dot earned"></span> Earned</span>
+            <span><span class="dot locked"></span> Locked</span>
+            <span><span class="dot current"></span> This Month</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 9: ACHIEVEMENTS ==================== -->
+    <section id="achievements-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>🏅 Achievements</h2>
+          <button onclick="navigateTo('profile')" class="back-btn"><i class="fas fa-arrow-left"></i></button>
+        </div>
+
+        <div class="card achievements-card">
+          <div class="achievements-header">
+            <h3>Your Achievements</h3>
+            <p id="achievements-progress">0 / 20 completed</p>
+          </div>
+
+          <div class="achievements-list" id="achievements-list">
+            <!-- Generated by JS -->
+            <div class="achievement-item" data-id="perfect_score">
+              <div class="achievement-icon">🏅</div>
+              <div class="achievement-info">
+                <h4>Perfect Score</h4>
+                <p>Score 15/15 correct</p>
+                <div class="achievement-tiers">
+                  <span class="tier done">1</span>
+                  <span class="tier">5</span>
+                  <span class="tier">10</span>
+                  <span class="tier">25</span>
+                  <span class="tier">50</span>
+                </div>
+              </div>
+              <div class="achievement-progress">3/5</div>
+            </div>
+            <!-- ... more achievements ... -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== SCREEN 10: SETTINGS ==================== -->
+    <section id="settings-screen" class="screen hidden">
+      <div class="quiz-wrapper">
+        <div class="top-bar">
+          <h2>⚙️ Settings</h2>
+          <button onclick="navigateTo('landing')" class="back-btn"><i class="fas fa-arrow-left"></i></button>
+        </div>
+
+        <div class="card settings-card">
+          <div class="settings-section">
+            <h4>Appearance</h4>
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-icon">🌙</span>
+                <div>
+                  <span class="setting-name">Dark Mode</span>
+                  <span class="setting-desc">Easier on the eyes at night</span>
+                </div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="dark-mode-toggle" onchange="toggleDarkMode()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>Sound</h4>
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-icon">🔊</span>
+                <div>
+                  <span class="setting-name">Sound Effects</span>
+                  <span class="setting-desc">Quiz feedback sounds</span>
+                </div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="sound-toggle" checked onchange="toggleSound()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>Notifications</h4>
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-icon">🔔</span>
+                <div>
+                  <span class="setting-name">Push Notifications</span>
+                  <span class="setting-desc">Streak reminders, challenges, league alerts</span>
+                </div>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="notif-toggle" onchange="toggleNotifications()">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+          </div>
+
+          <div class="settings-section">
+            <h4>Support</h4>
+            <a href="https://wa.me/+2349167055488?text=Hello%20ScriptureQuest%20Admin!" 
+               class="setting-link" target="_blank" rel="noopener">
+              <span class="setting-icon">💬</span>
+              <div>
+                <span class="setting-name">Contact Admin</span>
+                <span class="setting-desc">WhatsApp support</span>
+              </div>
+              <i class="fas fa-external-link-alt"></i>
+            </a>
+            <div class="setting-item">
+              <div class="setting-info">
+                <span class="setting-icon">📋</span>
+                <div>
+                  <span class="setting-name">App Version</span>
+                  <span class="setting-desc">v2.0 — ScriptureQuest Overhaul</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="settings-section danger-zone">
+            <button onclick="handleLogout()" class="danger-btn" style="width:100%">
+              <i class="fas fa-sign-out-alt"></i> Logout
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== BOTTOM NAVIGATION ==================== -->
+  <nav id="bottom-nav" class="bottom-nav hidden">
+    <button class="nav-item active" data-nav="landing" onclick="navigateTo('landing')">
+      <i class="fas fa-home"></i>
+      <span>Home</span>
+    </button>
+    <button class="nav-item" data-nav="leaderboard" onclick="navigateTo('leaderboard')">
+      <i class="fas fa-trophy"></i>
+      <span>Leaderboard</span>
+    </button>
+    <button class="nav-item" data-nav="rewards" onclick="navigateTo('rewards')">
+      <i class="fas fa-gift"></i>
+      <span>Rewards</span>
+    </button>
+    <button class="nav-item" data-nav="profile" onclick="navigateTo('profile')">
+      <i class="fas fa-user"></i>
+      <span>Profile</span>
+    </button>
+    <button class="nav-item" data-nav="settings" onclick="navigateTo('settings')">
+      <i class="fas fa-cog"></i>
+      <span>Settings</span>
+    </button>
+  </nav>
+
+  <!-- ==================== FIREBASE ==================== -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-messaging-compat.js"></script>
+
+  <script>
+    const firebaseConfig = {
+      apiKey: "AIzaSyCEmiQRwVR6TT3UpQHc6yIYAAq-E2E9W4w",
+      authDomain: "bible-quiz-36ba0.firebaseapp.com",
+      projectId: "bible-quiz-36ba0",
+      storageBucket: "bible-quiz-36ba0.firebasestorage.app",
+      messagingSenderId: "570860971209",
+      appId: "1:570860971209:web:f88225f800c0f5556f5918",
+      measurementId: "G-WD3YD9N6Y3"
+    };
+    firebase.initializeApp(firebaseConfig);
+    console.log("🔥 Firebase initialized — ScriptureQuest v2");
+  </script>
+
+  <!-- ==================== APP SCRIPTS ==================== -->
+  <script src="questions.js"></script>
+  <script src="firebase.js"></script>
+  <script src="script.js"></script>
+
+</body>
+</html>
