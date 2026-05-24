@@ -1179,34 +1179,61 @@ async function loadAllData() {
 // ══════════════════════════════════════════════════
 async function loadStats() {
   log('Loading stats…');
+  
+  // Load users first (this usually works)
+  let usersSnap;
   try {
-    const [usersSnap, quizSnap, claimsSnap, pendingSnap] = await Promise.all([
-      db.collection('users').get(),
-      db.collection('quizAttempts').get(),
-      db.collection('rewardClaims').get(),
-      db.collection('rewardClaims').where('status','==','pending').get(),
-    ]);
-
-    document.getElementById('stat-users').textContent   = usersSnap.size;
-    document.getElementById('stat-quizzes').textContent = quizSnap.size;
-    document.getElementById('stat-claims').textContent  = claimsSnap.size;
-    document.getElementById('stat-pending').textContent = pendingSnap.size;
-    document.getElementById('stat-week').textContent    = 'W' + getDisplayWeek();
-
+    usersSnap = await db.collection('users').get();
+    document.getElementById('stat-users').textContent = usersSnap.size;
     // Build user cache
     usersSnap.forEach(doc => { userCache[doc.id] = doc.data(); });
+    log(`Users loaded: ${usersSnap.size}`, 'ok');
+  } catch(err) {
+    log(`Users error: ${err.message}`, 'err');
+    document.getElementById('stat-users').textContent = 'Err';
+    usersSnap = { size: 0, forEach: () => {} };
+  }
 
-    // Avg score
+  // Load quizzes (separate try-catch)
+  try {
+    const quizSnap = await db.collection('quizAttempts').get();
+    document.getElementById('stat-quizzes').textContent = quizSnap.size;
+    
     let total = 0, count = 0;
     quizSnap.forEach(doc => {
       const p = doc.data().percentage;
       if (typeof p === 'number') { total += p; count++; }
     });
     document.getElementById('stat-avg').textContent = count > 0 ? Math.round(total/count) + '%' : '—';
-    log(`Stats: ${usersSnap.size} users, ${quizSnap.size} quizzes, ${claimsSnap.size} claims`, 'ok');
+    log(`Quizzes loaded: ${quizSnap.size}`, 'ok');
   } catch(err) {
-    log(`Stats error: ${err.message}`, 'err');
+    log(`Quizzes error: ${err.message}`, 'err');
+    document.getElementById('stat-quizzes').textContent = 'Err';
+    document.getElementById('stat-avg').textContent = 'Err';
   }
+
+  // Load claims (separate try-catch)
+  try {
+    const claimsSnap = await db.collection('rewardClaims').get();
+    document.getElementById('stat-claims').textContent = claimsSnap.size;
+    log(`Claims loaded: ${claimsSnap.size}`, 'ok');
+  } catch(err) {
+    log(`Claims error: ${err.message}`, 'err');
+    document.getElementById('stat-claims').textContent = 'Err';
+  }
+
+  // Load pending claims (separate try-catch)
+  try {
+    const pendingSnap = await db.collection('rewardClaims').where('status','==','pending').get();
+    document.getElementById('stat-pending').textContent = pendingSnap.size;
+    log(`Pending claims: ${pendingSnap.size}`, 'ok');
+  } catch(err) {
+    log(`Pending claims error: ${err.message}`, 'err');
+    document.getElementById('stat-pending').textContent = 'Err';
+  }
+
+  // Week is always available
+  document.getElementById('stat-week').textContent = 'W' + getDisplayWeek();
 }
 
 // ══════════════════════════════════════════════════
@@ -1216,11 +1243,18 @@ async function loadWinners() {
   const grid = document.getElementById('winners-grid');
   if (!grid) return;
   grid.innerHTML = '<div style="color:var(--text-muted);padding:24px;text-align:center;grid-column:1/-1"><i class="fas fa-spinner spin"></i> Loading winners…</div>';
+  
   try {
     const weekId = getCurrentWeekId();
     log(`Loading winners for ${weekId}…`);
-    const doc     = await db.collection('leaderboard').doc(weekId).get();
-    const entries = doc.exists ? (doc.data().entries || []) : [];
+    
+    // Read from subcollection (matches firebase.js structure)
+    const snap = await db.collection('leaderboard').doc(weekId).collection('entries')
+      .orderBy('points', 'desc')
+      .limit(3)
+      .get();
+    
+    const entries = snap.docs.map(d => ({ userId: d.id, ...d.data() }));
     log(`Leaderboard entries this week: ${entries.length}`, 'ok');
 
     if (entries.length === 0) {
@@ -1252,7 +1286,7 @@ async function loadWinners() {
           <div class="winner-detail"><i class="fas fa-phone"></i> ${ud.phoneNumber || '—'}</div>
           <div class="winner-detail"><i class="fas fa-signal"></i> ${ud.networkProvider || '—'}</div>
         </div>
-        <div class="winner-points">${entry.points.toLocaleString()} XP</div>
+        <div class="winner-points">${(entry.points || 0).toLocaleString()} XP</div>
         <div class="winner-reward ${classes[i]}">${rewards[i]}</div>
       </div>`;
     }
@@ -1269,10 +1303,14 @@ async function loadWinners() {
 async function loadLeaderboard() {
   const tbody = document.getElementById('leaderboard-body');
   tbody.innerHTML = '<tr class="loading-row"><td colspan="8"><i class="fas fa-spinner spin"></i> &nbsp;Loading…</td></tr>';
+  
   try {
     const weekId = getCurrentWeekId();
-    const doc    = await db.collection('leaderboard').doc(weekId).get();
-    const entries = doc.exists ? (doc.data().entries || []) : [];
+    const snap = await db.collection('leaderboard').doc(weekId).collection('entries')
+      .orderBy('points', 'desc')
+      .get();
+    
+    const entries = snap.docs.map(d => ({ userId: d.id, ...d.data() }));
     log(`Leaderboard: ${entries.length} entries for ${weekId}`, 'ok');
 
     if (entries.length === 0) {
@@ -1304,7 +1342,7 @@ async function loadLeaderboard() {
         <td class="user-email">${ud.email || '—'}</td>
         <td>${ud.phoneNumber || '—'}</td>
         <td><span class="network-badge ${net}">${ud.networkProvider || '—'}</span></td>
-        <td><span class="points-badge">${entry.points.toLocaleString()} XP</span></td>
+        <td><span class="points-badge">${(entry.points || 0).toLocaleString()} XP</span></td>
         <td style="font-size:12px">Lv.${level} ${getLevelTitle(level)}</td>
         <td>${status}</td>
       </tr>`;
@@ -1492,11 +1530,19 @@ async function doArchiveWeeklyWinners() {
 
   log(`Archiving ${prevWeekId}…`);
   try {
-    const doc     = await db.collection('leaderboard').doc(prevWeekId).get();
-    if (!doc.exists) { showToast('No leaderboard for ' + prevWeekId, 'info'); return; }
+    // Read from subcollection
+    const snap = await db.collection('leaderboard').doc(prevWeekId).collection('entries')
+      .orderBy('points', 'desc')
+      .limit(3)
+      .get();
+    
+    const top3 = snap.docs.map(d => ({ userId: d.id, ...d.data() }));
+    
+    if (top3.length === 0) { 
+      showToast('No leaderboard entries for ' + prevWeekId, 'info'); 
+      return; 
+    }
 
-    const entries = doc.data().entries || [];
-    const top3    = entries.slice(0, 3);
     const rewards = ['2GB Data', '1GB Data', '500MB Data'];
 
     // Write weeklyWinners archive
@@ -1513,12 +1559,12 @@ async function doArchiveWeeklyWinners() {
     for (let i = 0; i < top3.length; i++) {
       const winner  = top3[i];
       const ud      = userCache[winner.userId] || {};
-      // Avoid duplicate claims
       const existing = await db.collection('rewardClaims')
         .where('userId','==',winner.userId)
         .where('week','==',prevWeekId)
         .where('type','==','weekly')
         .get();
+        
       if (existing.empty) {
         await db.collection('rewardClaims').add({
           userId:     winner.userId,
@@ -1549,7 +1595,6 @@ async function doArchiveWeeklyWinners() {
     showToast('Archive error: ' + err.message, 'error');
   }
 }
-
 // ══════════════════════════════════════════════════
 //  CSV / QUESTION PIPELINE
 // ══════════════════════════════════════════════════
