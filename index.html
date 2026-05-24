@@ -771,6 +771,15 @@
       <span>Settings</span>
     </button>
   </nav>
+  
+  <script>
+  // Force cache bust on every reload during development
+  const BUILD_ID = '2026-05-24-v4-fix';
+  if (sessionStorage.getItem('build_id') !== BUILD_ID) {
+    sessionStorage.setItem('build_id', BUILD_ID);
+    location.reload(true);
+  }
+</script>
 
   <!-- ==================== FIREBASE ==================== -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
